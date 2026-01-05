@@ -5,13 +5,13 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  id-token: write
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-      id-token: write
 
     steps:
       - name: Checkout
@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '24'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
@@ -38,8 +38,8 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Publish to npm with Provenance
-        run: npm publish --access public --provenance
+      - name: Publish to npm
+        run: npm publish --access public
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
