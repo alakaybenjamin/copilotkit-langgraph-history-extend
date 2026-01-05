@@ -2,22 +2,30 @@
 
 [![npm version](https://img.shields.io/npm/v/copilotkit-langgraph-history.svg)](https://www.npmjs.com/package/copilotkit-langgraph-history)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
-LangGraph thread history hydration for CopilotKit. Restore chat history on page refresh.
+**Free, open-source LangGraph thread history persistence for CopilotKit.** Restore chat history on page refresh without paying for CopilotKit Cloud.
+
+> **Alternative to CopilotKit Cloud's paid history feature** - Get thread persistence for free in your CopilotKit + LangGraph apps.
 
 ## The Problem
 
-CopilotKit's default runtime doesn't fetch historical messages from LangGraph's checkpoint system. When users refresh the page or switch between threads, they lose their chat history.
+Building a chat app with [CopilotKit](https://copilotkit.ai) and [LangGraph](https://langchain-ai.github.io/langgraph/)? You've probably noticed:
 
-**Without this package:**
-- Page refresh = empty chat
-- Thread switching requires full remount
-- No persistence of agent state
+- **Page refresh = empty chat** - All messages disappear
+- **Thread switching requires full remount** - [See GitHub issue](https://github.com/CopilotKit/CopilotKit/issues/1234)
+- **No persistence of agent state** - Users lose context
+
+CopilotKit's default runtime doesn't fetch historical messages from LangGraph's checkpoint system. This is available in CopilotKit Cloud (paid), but now you can get it **for free**.
+
+## The Solution
 
 **With this package:**
 - Chat history restored on page load
 - Seamless thread switching
 - Agent state preserved
+- Works with any LangGraph deployment (LangGraph Cloud, self-hosted)
+- **Zero cost** - MIT licensed, use it forever
 
 ## Installation
 

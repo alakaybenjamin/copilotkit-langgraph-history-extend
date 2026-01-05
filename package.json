@@ -1,7 +1,7 @@
 {
   "name": "copilotkit-langgraph-history",
-  "version": "0.1.4",
-  "description": "LangGraph thread history hydration for CopilotKit - restore chat history on page refresh",
+  "version": "0.1.5",
+  "description": "Free open-source CopilotKit + LangGraph chat history persistence. Restore thread history on page refresh. Alternative to CopilotKit Cloud.",
   "license": "MIT",
   "author": "Daniel Frey <github.com/clickspider>",
   "repository": {
@@ -15,12 +15,17 @@
   "keywords": [
     "copilotkit",
     "langgraph",
-    "ai",
-    "agent",
-    "history",
-    "chat",
-    "thread",
     "langchain",
+    "ai-agent",
+    "chat-history",
+    "thread-persistence",
+    "nextjs",
+    "react",
+    "typescript",
+    "open-source",
+    "free",
+    "chat",
+    "history",
     "hydration"
   ],
   "type": "module",
