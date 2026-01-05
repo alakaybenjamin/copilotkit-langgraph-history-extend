@@ -38,20 +38,8 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      # Option A: If using NPM_TOKEN secret (granular token)
-      - name: Publish to npm
-        run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Option B: Uncomment below for npm Provenance (OIDC - no token needed)
-      # First, link your npm account to GitHub: https://www.npmjs.com/settings/clickspider/profile
-      # Then enable "Require two-factor authentication or an automation or publishing access token"
-      # in package settings, and configure publishing access for GitHub Actions
-      # - name: Publish to npm with Provenance
-      #   run: npm publish --access public --provenance
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm with Provenance
+        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
