@@ -1,6 +1,6 @@
 {
   "name": "copilotkit-langgraph-history",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "LangGraph thread history hydration for CopilotKit - restore chat history on page refresh",
   "license": "MIT",
   "author": "Daniel Frey <github.com/clickspider>",
@@ -93,6 +93,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "packageManager": "pnpm@10.0.0"
+  }
 }
