@@ -1,7 +1,7 @@
 {
   "name": "copilotkit-langgraph-history",
-  "version": "0.1.5",
-  "description": "Free open-source CopilotKit + LangGraph chat history persistence. Restore thread history on page refresh. Alternative to CopilotKit Cloud.",
+  "version": "0.1.6",
+  "description": "Open-source CopilotKit + LangGraph chat history persistence. Restore thread history on page refresh.",
   "license": "MIT",
   "author": "Daniel Frey <github.com/clickspider>",
   "repository": {
@@ -23,7 +23,6 @@
     "react",
     "typescript",
     "open-source",
-    "free",
     "chat",
     "history",
     "hydration"
