@@ -22,6 +22,11 @@ export type {
   ThreadState,
   FrozenAgentConfig,
   PredictStateTool,
+  // Client interface for custom implementations (FastAPI, etc.)
+  HistoryClientInterface,
+  HistoryRun,
+  HistoryStreamChunk,
+  JoinStreamOptions,
 } from "./runner/types";
 
 // Constants

@@ -3,6 +3,13 @@ import type { AgentRunnerRunRequest } from "@copilotkitnext/runtime";
 
 /**
  * Configuration for the HistoryHydratingAgentRunner.
+ *
+ * Two modes of operation:
+ * 1. LangGraph Platform/Cloud: Provide deploymentUrl and graphId
+ * 2. Self-hosted (FastAPI): Provide client implementing HistoryClientInterface
+ *
+ * When using a custom client, deploymentUrl and graphId are still required
+ * for agent creation (the run() operation).
  */
 export interface HistoryHydratingRunnerConfig {
   /**
@@ -11,15 +18,25 @@ export interface HistoryHydratingRunnerConfig {
   agent: LangGraphAgent;
 
   /**
-   * LangGraph deployment URL (required).
-   * Used to create fresh Client instances for history fetching.
+   * LangGraph deployment URL.
+   * Required for LangGraph Platform/Cloud.
+   * Also required when using custom client (for agent creation).
    */
-  deploymentUrl: string;
+  deploymentUrl?: string;
 
   /**
    * Graph ID for the agent.
+   * Required for LangGraph Platform/Cloud.
+   * Also required when using custom client (for agent creation).
    */
-  graphId: string;
+  graphId?: string;
+
+  /**
+   * Custom client for history operations.
+   * When provided, uses this instead of creating LangGraph SDK clients.
+   * Useful for self-hosted FastAPI servers that implement the AG-UI protocol.
+   */
+  client?: HistoryClientInterface;
 
   /**
    * LangSmith API key for authentication (optional).
@@ -121,4 +138,137 @@ export interface FrozenAgentConfig {
   graphId: string;
   langsmithApiKey?: string;
   clientTimeoutMs: number;
+}
+
+// =============================================================================
+// Custom Client Interface (for self-hosted FastAPI servers)
+// =============================================================================
+
+/**
+ * Interface for custom history clients.
+ *
+ * Implement this interface to provide history operations for self-hosted
+ * LangGraph servers (e.g., FastAPI with AG-UI protocol).
+ *
+ * @example
+ * ```typescript
+ * const customClient: HistoryClientInterface = {
+ *   threads: {
+ *     getHistory: async (threadId, options) => {
+ *       const res = await fetch(`${baseUrl}/threads/${threadId}/history?limit=${options?.limit}`);
+ *       return res.json();
+ *     },
+ *     getState: async (threadId) => {
+ *       const res = await fetch(`${baseUrl}/threads/${threadId}/state`);
+ *       return res.json();
+ *     },
+ *   },
+ *   runs: {
+ *     list: async (threadId) => {
+ *       const res = await fetch(`${baseUrl}/runs?thread_id=${threadId}`);
+ *       return res.json();
+ *     },
+ *     joinStream: (threadId, runId, options) => {
+ *       // Return async iterable for SSE stream
+ *     },
+ *   },
+ * };
+ * ```
+ */
+export interface HistoryClientInterface {
+  threads: {
+    /**
+     * Get thread history (checkpoints).
+     * @param threadId - The thread ID
+     * @param options - Optional limit on number of checkpoints
+     * @returns Array of thread states (checkpoints)
+     */
+    getHistory(
+      threadId: string,
+      options?: { limit?: number }
+    ): Promise<ThreadState[]>;
+
+    /**
+     * Get current thread state.
+     * @param threadId - The thread ID
+     * @returns Current thread state
+     */
+    getState(threadId: string): Promise<ThreadState>;
+  };
+
+  runs: {
+    /**
+     * List runs for a thread.
+     * @param threadId - The thread ID
+     * @returns Array of runs
+     */
+    list(threadId: string): Promise<HistoryRun[]>;
+
+    /**
+     * Join an active run's stream.
+     * @param threadId - The thread ID
+     * @param runId - The run ID to join
+     * @param options - Stream options
+     * @returns Async iterable of stream chunks
+     */
+    joinStream(
+      threadId: string,
+      runId: string,
+      options?: JoinStreamOptions
+    ): AsyncIterable<HistoryStreamChunk>;
+  };
+}
+
+/**
+ * Run information from LangGraph.
+ */
+export interface HistoryRun {
+  /** Unique run identifier */
+  run_id: string;
+
+  /** Current status of the run */
+  status:
+    | "running"
+    | "pending"
+    | "success"
+    | "error"
+    | "timeout"
+    | "interrupted";
+
+  /** Thread ID this run belongs to */
+  thread_id?: string;
+
+  /** Assistant/graph ID */
+  assistant_id?: string;
+
+  /** When the run was created */
+  created_at?: string;
+
+  /** When the run was last updated */
+  updated_at?: string;
+
+  /** Additional metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Stream chunk from joinStream.
+ */
+export interface HistoryStreamChunk {
+  /** Event type (e.g., "values", "updates", "events", "custom") */
+  event: string;
+
+  /** Event data payload */
+  data: unknown;
+}
+
+/**
+ * Options for joining a stream.
+ */
+export interface JoinStreamOptions {
+  /**
+   * Stream modes to subscribe to.
+   * Common modes: "values", "updates", "events", "custom", "messages"
+   */
+  streamMode?: string[];
 }

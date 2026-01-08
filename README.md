@@ -118,13 +118,16 @@ function App() {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `agent` | `LangGraphAgent` | **required** | The LangGraphAgent instance |
-| `deploymentUrl` | `string` | **required** | LangGraph deployment URL |
-| `graphId` | `string` | **required** | Graph identifier |
+| `deploymentUrl` | `string` | **required*** | LangGraph deployment URL |
+| `graphId` | `string` | **required*** | Graph identifier |
 | `langsmithApiKey` | `string` | `undefined` | LangSmith API key |
 | `historyLimit` | `number` | `100` | Max checkpoints to fetch (max 1000) |
 | `clientTimeoutMs` | `number` | `1800000` | HTTP timeout (default 30 min) |
 | `debug` | `boolean` | `false` | Enable debug logging |
 | `stateExtractor` | `function` | `undefined` | Custom state extraction |
+| `client` | `HistoryClientInterface` | `undefined` | Custom client for self-hosted servers |
+
+\* `deploymentUrl` and `graphId` are required unless a custom `client` is provided.
 
 ### `createIsolatedAgent` Options
 
@@ -167,6 +170,70 @@ In serverless environments (especially Vercel Fluid Compute), Node.js module-lev
 3. Force-replacing the client if contamination is detected
 
 **Always use `createIsolatedAgent` instead of `new LangGraphAgent()` in serverless environments.**
+
+### Custom Client (Self-Hosted FastAPI)
+
+For self-hosted LangGraph servers (e.g., FastAPI with `LangGraphAGUIAgent`), you can provide a custom client that implements the `HistoryClientInterface`:
+
+```typescript
+import {
+  HistoryHydratingAgentRunner,
+  HistoryClientInterface,
+} from "copilotkit-langgraph-history";
+
+// Create a custom client for your FastAPI server
+const customClient: HistoryClientInterface = {
+  threads: {
+    getHistory: async (threadId, options) => {
+      const res = await fetch(
+        `${FASTAPI_URL}/threads/${threadId}/history?limit=${options?.limit ?? 100}`
+      );
+      return res.json();
+    },
+    getState: async (threadId) => {
+      const res = await fetch(`${FASTAPI_URL}/threads/${threadId}/state`);
+      return res.json();
+    },
+  },
+  runs: {
+    list: async (threadId) => {
+      const res = await fetch(`${FASTAPI_URL}/runs?thread_id=${threadId}`);
+      return res.json();
+    },
+    joinStream: async function* (threadId, runId, options) {
+      // Implement SSE streaming to match your FastAPI endpoint
+      const res = await fetch(
+        `${FASTAPI_URL}/runs/${runId}/join?thread_id=${threadId}`,
+        { headers: { Accept: "text/event-stream" } }
+      );
+      // Parse and yield stream chunks...
+    },
+  },
+};
+
+// Use the custom client
+const runner = new HistoryHydratingAgentRunner({
+  agent,
+  client: customClient,  // Custom client instead of deploymentUrl
+  historyLimit: 100,
+});
+```
+
+**Note:** When using a custom `client`, the `deploymentUrl`, `graphId`, `langsmithApiKey`, and `clientTimeoutMs` options are ignored for history operations.
+
+For a complete FastAPI implementation, see the companion Python package in the `python/` directory, or install it:
+
+```bash
+pip install copilotkit-langgraph-history
+```
+
+Then in your FastAPI server:
+
+```python
+from copilotkit_history import add_history_endpoints
+
+add_history_endpoints(app, graph)  # One line!
+```
 
 ### Debug Mode
 
@@ -223,6 +290,11 @@ export type {
   CreateIsolatedAgentConfig,
   LangGraphMessage,
   ThreadState,
+  // Custom client interface (for self-hosted servers)
+  HistoryClientInterface,
+  HistoryRun,
+  HistoryStreamChunk,
+  JoinStreamOptions,
 } from "copilotkit-langgraph-history";
 
 // Constants
@@ -244,6 +316,23 @@ export {
   extractContent,
   processStreamChunk,
 } from "copilotkit-langgraph-history";
+```
+
+### `HistoryClientInterface`
+
+Interface for custom client implementations. Implement this to connect to self-hosted servers:
+
+```typescript
+interface HistoryClientInterface {
+  threads: {
+    getHistory(threadId: string, options?: { limit?: number }): Promise<ThreadState[]>;
+    getState(threadId: string): Promise<ThreadState>;
+  };
+  runs: {
+    list(threadId: string): Promise<HistoryRun[]>;
+    joinStream(threadId: string, runId: string, options?: JoinStreamOptions): AsyncIterable<HistoryStreamChunk>;
+  };
+}
 ```
 
 ## Environment Variables

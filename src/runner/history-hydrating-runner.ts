@@ -16,7 +16,7 @@ import {
   type AgentRunnerRunRequest,
   type AgentRunnerStopRequest,
 } from "@copilotkitnext/runtime";
-import { Client, type Run, type StreamMode } from "@langchain/langgraph-sdk";
+import { Client } from "@langchain/langgraph-sdk";
 import { Observable } from "rxjs";
 
 import {
@@ -26,7 +26,10 @@ import {
 } from "./constants";
 import type {
   FrozenAgentConfig,
+  HistoryClientInterface,
   HistoryHydratingRunnerConfig,
+  HistoryRun,
+  HistoryStreamChunk,
   LangGraphMessage,
   StateExtractor,
   ThreadState,
@@ -73,18 +76,27 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
   } = {};
 
   /**
+   * Custom client for history operations.
+   * When provided, this is used instead of creating LangGraph SDK clients.
+   */
+  private readonly customClient?: HistoryClientInterface;
+
+  /**
    * Frozen agent config to prevent shared state contamination.
    * We store the raw config values and create fresh Agent/Client instances per request.
    * This is critical because Vercel serverless can bundle multiple routes together,
    * causing module-level state to leak between different agent configurations.
+   * 
+   * Only used when customClient is not provided.
    */
-  private readonly frozenConfig: Readonly<FrozenAgentConfig>;
+  private readonly frozenConfig: Readonly<FrozenAgentConfig> | null;
 
   constructor(config: HistoryHydratingRunnerConfig) {
     super();
     this.agent = config.agent;
     this.debug = config.debug ?? false;
     this.stateExtractor = config.stateExtractor;
+    this.customClient = config.client;
 
     // LangGraph API has a maximum limit of 1000 for history endpoint
     this.historyLimit = Math.min(
@@ -92,20 +104,76 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
       MAX_HISTORY_LIMIT
     );
 
-    // Freeze the config to prevent mutation
-    this.frozenConfig = Object.freeze({
-      deploymentUrl: config.deploymentUrl,
-      graphId: config.graphId,
-      langsmithApiKey: config.langsmithApiKey,
-      clientTimeoutMs: config.clientTimeoutMs ?? DEFAULT_TIMEOUT,
-    });
+    // When using custom client, still require deploymentUrl and graphId for agent creation
+    if (config.client) {
+      this.log("Using custom client for history operations");
+      
+      // Even with custom client, we need deploymentUrl and graphId for run() operations
+      if (!config.deploymentUrl) {
+        throw new Error(
+          "HistoryHydratingAgentRunner: deploymentUrl is required (even when using a custom client, for agent creation)"
+        );
+      }
+      if (!config.graphId) {
+        throw new Error(
+          "HistoryHydratingAgentRunner: graphId is required (even when using a custom client, for agent creation)"
+        );
+      }
+      
+      // Freeze the config for agent creation
+      this.frozenConfig = Object.freeze({
+        deploymentUrl: config.deploymentUrl,
+        graphId: config.graphId,
+        langsmithApiKey: config.langsmithApiKey,
+        clientTimeoutMs: config.clientTimeoutMs ?? DEFAULT_TIMEOUT,
+      });
+    } else {
+      // Validate required fields when not using custom client
+      if (!config.deploymentUrl) {
+        throw new Error(
+          "HistoryHydratingAgentRunner: deploymentUrl is required when not using a custom client"
+        );
+      }
+      if (!config.graphId) {
+        throw new Error(
+          "HistoryHydratingAgentRunner: graphId is required when not using a custom client"
+        );
+      }
+
+      // Freeze the config to prevent mutation
+      this.frozenConfig = Object.freeze({
+        deploymentUrl: config.deploymentUrl,
+        graphId: config.graphId,
+        langsmithApiKey: config.langsmithApiKey,
+        clientTimeoutMs: config.clientTimeoutMs ?? DEFAULT_TIMEOUT,
+      });
+    }
   }
 
   /**
    * Creates a fresh LangGraphAgent instance using the frozen config.
-   * Uses our isolated agent creator to prevent shared state contamination.
+   * 
+   * CRITICAL: This prevents shared state contamination in Vercel serverless
+   * environments (Fluid Compute). We cannot trust request.agent because
+   * CopilotKit's clone() passes config by reference, not by value, and
+   * Vercel can bundle multiple routes together causing module-level state
+   * to leak between different agent configurations.
+   * 
+   * Uses our isolated agent creator which:
+   * 1. Creates agent with fresh, frozen config
+   * 2. Verifies the internal client has the correct URL
+   * 3. Force-replaces the client if contamination is detected
+   * 
+   * Note: When using a custom client (self-hosted), this is only called
+   * for LangGraph Platform deployments. Self-hosted servers use this.agent.
    */
   private createFreshAgent(): LangGraphAgent {
+    if (!this.frozenConfig) {
+      throw new Error(
+        "Cannot create agent: frozenConfig is not available. " +
+        "When using a custom client, you must still provide deploymentUrl and graphId for agent creation."
+      );
+    }
     return createIsolatedAgent({
       deploymentUrl: this.frozenConfig.deploymentUrl,
       graphId: this.frozenConfig.graphId,
@@ -115,15 +183,69 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
   }
 
   /**
-   * Creates a fresh LangGraph Client instance using the frozen config.
-   * This prevents shared state contamination in serverless environments.
+   * Gets the client for history operations.
+   * Returns the custom client if provided, otherwise creates a fresh LangGraph SDK client.
+   * 
+   * CRITICAL: When using SDK client (LangGraph Platform), we create a FRESH Client
+   * instance per call to prevent shared state contamination in Vercel serverless
+   * environments. The frozen config ensures the correct deployment URL is always used.
    */
-  private createFreshClient(): Client {
-    return new Client({
+  private getHistoryClient(): HistoryClientInterface {
+    // If custom client is provided, use it (self-hosted FastAPI servers)
+    if (this.customClient) {
+      return this.customClient;
+    }
+
+    // CRITICAL: Create a fresh LangGraph SDK client per call to prevent
+    // shared state contamination in Vercel serverless environments.
+    if (!this.frozenConfig) {
+      throw new Error(
+        "Cannot create client: neither custom client nor frozenConfig is available"
+      );
+    }
+
+    const sdkClient = new Client({
       apiUrl: this.frozenConfig.deploymentUrl,
       apiKey: this.frozenConfig.langsmithApiKey,
       timeoutMs: this.frozenConfig.clientTimeoutMs,
     });
+
+    // Wrap SDK client to match HistoryClientInterface
+    return this.wrapSdkClient(sdkClient);
+  }
+
+  /**
+   * Wraps the LangGraph SDK Client to match HistoryClientInterface.
+   * This allows us to use the same code path for both SDK and custom clients.
+   */
+  private wrapSdkClient(sdkClient: Client): HistoryClientInterface {
+    return {
+      threads: {
+        getHistory: async (threadId: string, options?: { limit?: number }) => {
+          const history = await sdkClient.threads.getHistory(threadId, options);
+          return history as unknown as ThreadState[];
+        },
+        getState: async (threadId: string) => {
+          const state = await sdkClient.threads.getState(threadId);
+          return state as unknown as ThreadState;
+        },
+      },
+      runs: {
+        list: async (threadId: string) => {
+          const runs = await sdkClient.runs.list(threadId);
+          return runs as unknown as HistoryRun[];
+        },
+        joinStream: (
+          threadId: string,
+          runId: string,
+          options?: { streamMode?: string[] }
+        ) => {
+          return sdkClient.runs.joinStream(threadId, runId, {
+            streamMode: options?.streamMode as ("values" | "messages" | "updates" | "events" | "custom" | "messages-tuple" | "debug")[],
+          }) as unknown as AsyncIterable<HistoryStreamChunk>;
+        },
+      },
+    };
   }
 
   /**
@@ -150,15 +272,25 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
   }
 
   /**
-   * Run the agent with a FRESH agent instance.
-   * CRITICAL: We cannot trust request.agent (cloned by CopilotKit) because
-   * its internal Client may have been corrupted by shared module state in
-   * Vercel serverless environments. Create a completely fresh agent with
-   * our frozen config to guarantee the correct deployment URL is used.
+   * Run the agent with the appropriate agent instance.
+   * 
+   * CRITICAL for LangGraph Platform/Cloud (no custom client):
+   * We cannot trust request.agent (cloned by CopilotKit) because its internal
+   * Client may have been corrupted by shared module state in Vercel serverless
+   * environments. We create a completely fresh agent with our frozen config
+   * to GUARANTEE the correct deployment URL is used.
+   * 
+   * For self-hosted FastAPI servers (custom client provided):
+   * - Use the original agent passed in the config (LangGraphHttpAgent)
+   * - The SDK agent won't work because self-hosted servers don't implement
+   *   the full LangGraph Platform API (no /assistants/search, etc.)
    */
   run(request: AgentRunnerRunRequest) {
-    // Create a fresh agent to bypass any shared state contamination
-    const freshAgent = this.createFreshAgent();
+    // CRITICAL: For LangGraph Platform, create a fresh agent to bypass any
+    // shared state contamination in Vercel serverless environments.
+    // For self-hosted (custom client), use the original agent.
+    const agentToUse = this.customClient ? this.agent : this.createFreshAgent();
+    this.log(`Using ${this.customClient ? 'original agent (self-hosted)' : 'fresh SDK agent (LangGraph Platform)'}`);
 
     // Extract state values using the configured extractor or default passthrough
     const inputWithProps = request.input as typeof request.input & {
@@ -188,9 +320,11 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
       threadId: request.input.threadId,
     });
 
-    // CRITICAL: Set state on the fresh agent before running
-    // This ensures the agent has the state configured before the run starts
-    freshAgent.setState(enrichedState);
+    // CRITICAL: Set state on the fresh/original agent before running.
+    // This ensures the agent has the state configured before the run starts.
+    // For LangGraph Platform: this is on the fresh agent (not contaminated).
+    // For self-hosted: this is on the original agent passed in config.
+    agentToUse.setState(enrichedState);
 
     // Create modified input with state values injected
     // This ensures LangGraph starts with these values from the first message
@@ -199,7 +333,7 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
       state: enrichedState,
     };
 
-    return freshAgent.run(inputWithState);
+    return agentToUse.run(inputWithState);
   }
 
   /**
@@ -230,9 +364,11 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
   connect(request: AgentRunnerConnectRequest): Observable<BaseEvent> {
     const { threadId } = request;
 
-    // CRITICAL: Create a fresh Client per connect() call to prevent
-    // shared state contamination in Vercel serverless environments.
-    const client = this.createFreshClient();
+    // Get the history client (custom or SDK-based).
+    // CRITICAL: When using SDK client (LangGraph Platform), this creates a
+    // FRESH Client instance per connect() call to prevent shared state
+    // contamination in Vercel serverless environments.
+    const client = this.getHistoryClient();
 
     return new Observable<BaseEvent>((subscriber) => {
       const hydrate = async () => {
@@ -392,13 +528,13 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
           // Check if thread is busy and has an active run to join (from latest checkpoint)
           const isThreadBusy = latestState.next && latestState.next.length > 0;
 
-          let activeRun: Run | undefined;
+          let activeRun: HistoryRun | undefined;
           if (isThreadBusy) {
             try {
               const runs = await client.runs.list(threadId);
               // Find the most recent active run
               activeRun = runs?.find(
-                (run: Run) =>
+                (run: HistoryRun) =>
                   run.status === "running" || run.status === "pending"
               );
             } catch (error) {
@@ -474,7 +610,7 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
    * we might receive CONTENT/END events without having seen START events.
    */
   private async joinAndProcessStream(
-    client: Client,
+    client: HistoryClientInterface,
     threadId: string,
     runId: string,
     subscriber: {
@@ -490,9 +626,9 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
 
     try {
       // Join the stream with multiple stream modes to get comprehensive event coverage
-      // Using the fresh client passed from connect() to ensure correct URL
+      // Using the client passed from connect() (custom or SDK-based)
       const stream = client.runs.joinStream(threadId, runId, {
-        streamMode: ["events", "values", "updates", "custom"] as StreamMode[],
+        streamMode: ["events", "values", "updates", "custom"],
       });
 
       let currentRunId = runId;
