@@ -9,7 +9,7 @@ import { CopilotRuntime, createCopilotEndpointSingleRoute } from "@copilotkit/ru
 import {
   HistoryHydratingAgentRunner,
   createIsolatedAgent,
-} from "copilotkit-langgraph-history";
+} from "test-history-agui";
 
 // Configuration from environment variables
 const deploymentUrl = process.env.LANGGRAPH_DEPLOYMENT_URL!;
