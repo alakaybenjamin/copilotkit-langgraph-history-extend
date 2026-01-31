@@ -1,6 +1,6 @@
 {
   "name": "test-history-agui",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Open-source CopilotKit + LangGraph chat history persistence. Restore thread history on page refresh.",
   "license": "MIT",
   "author": "Benjamin Alaka <github.com/alakaybenjamin>",
