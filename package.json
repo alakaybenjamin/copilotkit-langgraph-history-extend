@@ -3,14 +3,14 @@
   "version": "0.1.6",
   "description": "Open-source CopilotKit + LangGraph chat history persistence. Restore thread history on page refresh.",
   "license": "MIT",
-  "author": "Daniel Frey <github.com/clickspider>",
+  "author": "Benjamin Alaka <github.com/alakaybenjamin>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/clickspider/copilotkit-langgraph-history.git"
+    "url": "git+https://github.com/alakaybenjamin/copilotkit-langgraph-history-extend.git"
   },
-  "homepage": "https://github.com/clickspider/copilotkit-langgraph-history#readme",
+  "homepage": "https://github.com/alakaybenjamin/copilotkit-langgraph-history-extend#readme",
   "bugs": {
-    "url": "https://github.com/clickspider/copilotkit-langgraph-history/issues"
+    "url": "https://github.com/alakaybenjamin/copilotkit-langgraph-history-extend/issues"
   },
   "keywords": [
     "copilotkit",
@@ -56,8 +56,9 @@
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "pnpm run build",
-    "clean": "rm -rf dist"
+    "prepublishOnly": "pnpm run typecheck && pnpm run build",
+    "clean": "rm -rf dist",
+    "prepack": "pnpm run build"
   },
   "peerDependencies": {
     "@ag-ui/core": ">=0.0.40",

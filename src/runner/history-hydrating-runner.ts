@@ -16,7 +16,7 @@ import {
   type AgentRunnerRunRequest,
   type AgentRunnerStopRequest,
 } from "@copilotkitnext/runtime";
-import { Client } from "@langchain/langgraph-sdk";
+import { Client, type StreamMode } from "@langchain/langgraph-sdk";
 import { Observable } from "rxjs";
 
 import {
@@ -625,10 +625,10 @@ export class HistoryHydratingAgentRunner extends AgentRunner {
     const startedToolCalls = new Set<string>();
 
     try {
-      // Join the stream with multiple stream modes to get comprehensive event coverage
-      // Using the client passed from connect() (custom or SDK-based)
+      // Join the stream with multiple stream modes to get comprehensive event coverage.
+      // Using the client passed from connect() (custom or SDK-based).
       const stream = client.runs.joinStream(threadId, runId, {
-        streamMode: ["events", "values", "updates", "custom"],
+        streamMode: ["events", "values", "updates", "custom"] as StreamMode[],
       });
 
       let currentRunId = runId;
